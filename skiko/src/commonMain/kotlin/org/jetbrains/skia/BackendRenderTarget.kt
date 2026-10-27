@@ -2,6 +2,7 @@ package org.jetbrains.skia
 
 import org.jetbrains.skia.impl.Library.Companion.staticLoad
 import org.jetbrains.skia.impl.Managed
+import org.jetbrains.skia.impl.Native.Companion.NullPointer
 import org.jetbrains.skia.impl.NativePointer
 import org.jetbrains.skia.impl.Stats
 import org.jetbrains.skiko.RenderException
@@ -60,6 +61,44 @@ class BackendRenderTarget internal constructor(ptr: NativePointer) : Managed(ptr
             return BackendRenderTarget(_nMakeDirect3D(width, height, texturePtr, format, sampleCnt, levelCnt))
         }
 
+        /**
+         * Creates Vulkan backend render target from a Vulkan image.
+         *
+         * Caller must keep the underlying VkImage valid for the lifetime of the resulting backend render target.
+         */
+        fun makeVulkan(
+            width: Int,
+            height: Int,
+            imagePtr: NativePointer,
+            imageTiling: Int,
+            imageLayout: Int,
+            format: Int,
+            imageUsageFlags: Int,
+            sampleCnt: Int,
+            levelCnt: Int
+        ): BackendRenderTarget {
+            require(width > 0) { "width must be positive" }
+            require(height > 0) { "height must be positive" }
+            require(imagePtr != NullPointer) { "imagePtr must not be null" }
+            require(sampleCnt > 0) { "sampleCnt must be positive" }
+            require(levelCnt > 0) { "levelCnt must be positive" }
+
+            Stats.onNativeCall()
+            val ptr = _nMakeVulkan(
+                width,
+                height,
+                imagePtr,
+                imageTiling,
+                imageLayout,
+                format,
+                imageUsageFlags,
+                sampleCnt,
+                levelCnt
+            )
+            if (ptr == NullPointer) throw RenderException("Can't create Vulkan BackendRenderTarget")
+            return BackendRenderTarget(ptr)
+        }
+
         init {
             staticLoad()
         }
@@ -71,20 +110,48 @@ class BackendRenderTarget internal constructor(ptr: NativePointer) : Managed(ptr
 }
 
 @ExternalSymbolName("org_jetbrains_skia_BackendRenderTarget__1nGetFinalizer")
+// No ForceNativeThreadState: returns the function that frees the object, without calling it, so it is short and cannot
+// block.
+// Native call path: deleteBackendRenderTarget
 private external fun BackendRenderTarget_nGetFinalizer(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_BackendRenderTarget__1nMakeGL")
+// Needs ForceNativeThreadState: wraps a GL framebuffer ID from the backend in a render target object.
+// Native call path: GrBackendRenderTargets::MakeGL
+@ForceNativeThreadState
 private external fun _nMakeGL(width: Int, height: Int, sampleCnt: Int, stencilBits: Int, fbId: Int, fbFormat: Int): NativePointer
 
 @ExternalSymbolName("BackendRenderTarget_nMakeMetal")
+// Needs ForceNativeThreadState: retains a Metal texture through CoreFoundation and reads its sample count through
+// Objective-C.
+// Native call path: MakeMtl -> GrMtlTextureInfoSampleCount
+@ForceNativeThreadState
 private external fun _nMakeMetal(width: Int, height: Int, texturePtr: NativePointer): NativePointer
 
 @ExternalSymbolName("BackendRenderTarget_MakeDirect3D")
+// No ForceNativeThreadState: returns 0 because the Direct3D body is compiled out on every Kotlin/Native target, so it
+// is short and cannot block.
 private external fun _nMakeDirect3D(
     width: Int,
     height: Int,
     texturePtr: NativePointer,
     format: Int,
+    sampleCnt: Int,
+    levelCnt: Int
+): NativePointer
+
+@ExternalSymbolName("org_jetbrains_skia_BackendRenderTarget__1nMakeVulkan")
+// Needs ForceNativeThreadState: wraps a Vulkan image from the backend in a render target object.
+// Native call path: GrBackendRenderTargets::MakeVk
+@ForceNativeThreadState
+private external fun _nMakeVulkan(
+    width: Int,
+    height: Int,
+    imagePtr: NativePointer,
+    imageTiling: Int,
+    imageLayout: Int,
+    format: Int,
+    imageUsageFlags: Int,
     sampleCnt: Int,
     levelCnt: Int
 ): NativePointer

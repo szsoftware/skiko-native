@@ -5,8 +5,13 @@ offscreen drawing, GPU rendering, text and paragraph layout, images, paths, effe
 window rendering through `SkiaLayer`.
 
 This fork adds Kotlin/Native desktop support for Linux, Windows, and macOS. Native applications
-do not require a JVM at runtime. The current fork release is `0.153.1` under the
+do not require a JVM at runtime. The latest published fork release is `0.153.1` under the
 `dev.brahmkshatriya.skiko` Maven group.
+
+The development version in this checkout is `0.156.1`, tracking upstream Skiko through
+`2810fc213b7b` with Skia `m156-6416302ae5` and Kotlin `2.4.20`. It retains the fork's
+Linux, Windows, and macOS native backends. Use Kotlin `2.4.20` for native consumers of
+this development build. This version has not been published yet.
 
 ## Supported targets
 

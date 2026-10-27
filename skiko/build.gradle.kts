@@ -6,16 +6,69 @@ import groovy.json.JsonSlurper
 import org.gradle.api.publish.tasks.GenerateModuleMetadata
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.kotlin.dsl.withType
 import org.jetbrains.compose.internal.publishing.MavenCentralProperties
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.dsl.KotlinJsCompile
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
-import org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-import org.gradle.kotlin.dsl.withType
-import tasks.configuration.*
-import dsl.SkikoDependencyScope
+import org.jetbrains.kotlin.gradle.dsl.KotlinJsCompile
+import org.jetbrains.skiko.build.configuration.WasmImportsGeneratorCompilerPluginSupportPlugin
+import org.jetbrains.skiko.build.configuration.WasmImportsGeneratorForTestCompilerPluginSupportPlugin
+import org.jetbrains.skiko.build.configuration.configureGenerateSymbolsList
+import org.jetbrains.skiko.build.configuration.configureIOSTestsWithMetal
+import org.jetbrains.skiko.build.configuration.configureKotlinCompilerOptions
+import org.jetbrains.skiko.build.configuration.configureNativeTarget
+import org.jetbrains.skiko.build.configuration.configureSignAndPublishDependencies
+import org.jetbrains.skiko.build.configuration.configureWasmMainModuleSideModuleInputs
+import org.jetbrains.skiko.build.configuration.createSkikoJvmJarTask
+import org.jetbrains.skiko.build.configuration.declareWasmTasks
+import org.jetbrains.skiko.build.configuration.generateVersion
+import org.jetbrains.skiko.build.configuration.jvmRequiredSymbolsFor
+import org.jetbrains.skiko.build.configuration.provideWasmTestResources
+import org.jetbrains.skiko.build.configuration.setupImportsGeneratorPlugin
+import org.jetbrains.skiko.build.configuration.setupJvmTestTask
+import org.jetbrains.skiko.build.configuration.wasmSideModulesFor
+import org.jetbrains.skiko.build.context.SkikoModuleKind
+import org.jetbrains.skiko.build.context.SkikoProjectContext
+import org.jetbrains.skiko.build.context.androidMainSourceSet
+import org.jetbrains.skiko.build.context.awtMainSourceSet
+import org.jetbrains.skiko.build.context.awtTestSourceSet
+import org.jetbrains.skiko.build.context.declareSkiaTasks
+import org.jetbrains.skiko.build.context.jvmMainSourceSet
+import org.jetbrains.skiko.build.context.jvmTestSourceSet
+import org.jetbrains.skiko.build.context.registerOrGetSkiaDirProvider
+import org.jetbrains.skiko.build.context.skikoSourceSetHierarchyTemplate
+import org.jetbrains.skiko.build.context.supportAndroid
+import org.jetbrains.skiko.build.context.supportAnyNative
+import org.jetbrains.skiko.build.context.supportAwt
+import org.jetbrains.skiko.build.context.supportNativeIosArm64
+import org.jetbrains.skiko.build.context.supportNativeIosSimulatorArm64
+import org.jetbrains.skiko.build.context.supportNativeIosX64
+import org.jetbrains.skiko.build.context.supportNativeLinux
+import org.jetbrains.skiko.build.context.supportNativeLinuxArm64
+import org.jetbrains.skiko.build.context.supportNativeLinuxX64
+import org.jetbrains.skiko.build.context.supportNativeWindows
+import org.jetbrains.skiko.build.context.supportNativeMac
+import org.jetbrains.skiko.build.context.supportNativeTvosArm64
+import org.jetbrains.skiko.build.context.supportNativeTvosSimulatorArm64
+import org.jetbrains.skiko.build.context.supportNativeTvosX64
+import org.jetbrains.skiko.build.context.supportWeb
+import org.jetbrains.skiko.build.context.wasmJsTest
+import org.jetbrains.skiko.build.context.webMainSourceSet
+import org.jetbrains.skiko.build.context.webTestSourceSet
+import org.jetbrains.skiko.build.cpp.BuildLocalSkiaTask
+import org.jetbrains.skiko.build.cpp.CompileSkikoCppTask
+import org.jetbrains.skiko.build.cpp.CompileSkikoObjCTask
+import org.jetbrains.skiko.build.cpp.findWindowsSdkPaths
+import org.jetbrains.skiko.build.dependencies.SkikoDependencyScope
+import org.jetbrains.skiko.build.dependencies.registerAdditionalLibraries
+import org.jetbrains.skiko.build.publishing.declarePublications
+import org.jetbrains.skiko.build.utils.Arch
+import org.jetbrains.skiko.build.utils.OS
+import org.jetbrains.skiko.build.utils.SkikoArtifacts
+import org.jetbrains.skiko.build.utils.SkikoProperties
+import org.jetbrains.skiko.build.utils.hostOs
+import org.jetbrains.skiko.build.utils.joinToTitleCamelCase
+import org.jetbrains.skiko.build.utils.wasmImports
 
 plugins {
     kotlin("multiplatform")
@@ -230,24 +283,11 @@ repositories {
 }
 
 kotlin {
-    compilerOptions {
-        languageVersion.set(skikoKotlinLanguageVersion)
-        apiVersion.set(skikoKotlinApiVersion)
-        freeCompilerArgs.add(
-            "-opt-in=org.jetbrains.skiko.InternalSkikoApi"
-        )
-    }
-
     applyHierarchyTemplate(skikoSourceSetHierarchyTemplate)
     skikoProjectContext.declareSkiaTasks()
 
     if (supportAwt) {
         jvm("awt") {
-            compilations.all {
-                compileTaskProvider.configure {
-                    compilerOptions.jvmTarget.set(JvmTarget.JVM_11)
-                }
-            }
             generateVersion(targetOs, targetArch, skiko)
         }
     }
@@ -259,10 +299,6 @@ kotlin {
             minSdk = 24
             withJava()
             withHostTest {}
-
-            compilerOptions {
-                jvmTarget.set(JvmTarget.JVM_11)
-            }
         }
     }
 
@@ -409,11 +445,6 @@ kotlin {
     }
 
     if (supportAnyNative) {
-        sourceSets.all {
-            // Really ugly, see https://youtrack.jetbrains.com/issue/KT-46649 why it is required,
-            // note that setting it per source set still keeps it unset in commonized source sets.
-            languageSettings.optIn("kotlin.native.SymbolNameIsInternal")
-        }
         configureIOSTestsWithMetal(project)
     }
 }
@@ -593,10 +624,6 @@ project.tasks.withType<KotlinJsCompile>().configureEach {
     ))
 }
 
-skikoProjectContext.additionalRuntimeLibraries.forEach {
-    it.registerRuntimePublishTaskDependency(listOf("MavenLocal", "ComposeRepoRepository"))
-}
-
 // Local Skia build tasks
 tasks.register<BuildLocalSkiaTask>("prepareLocalSkiaBuild") {
     group = "skia"
@@ -626,10 +653,4 @@ tasks.register("printSkiaVersion") {
     }
 }
 
-tasks.withType<KotlinNativeCompile>().configureEach {
-    compilerOptions.freeCompilerArgs.add("-opt-in=kotlinx.cinterop.ExperimentalForeignApi")
-}
-
-tasks.withType<KotlinCompilationTask<*>>().configureEach {
-    compilerOptions.freeCompilerArgs.add("-Xexpect-actual-classes")
-}
+configureKotlinCompilerOptions()
