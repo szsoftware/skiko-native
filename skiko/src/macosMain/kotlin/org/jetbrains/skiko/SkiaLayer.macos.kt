@@ -4,6 +4,7 @@ import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ObjCAction
 import kotlinx.cinterop.useContents
 import org.jetbrains.skia.*
+import org.jetbrains.skia.impl.NativePointer
 import org.jetbrains.skiko.redrawer.Redrawer
 import platform.AppKit.*
 import platform.Foundation.NSNotification
@@ -258,6 +259,44 @@ actual open class SkiaLayer {
         checkNotNull(macosRenderer as? MacosOpenGLRenderer) {
             "The macOS native renderer is not OpenGL"
         }.drawTexture(textureId, width, height, canvas)
+    }
+
+    private val metalRenderer: MacosMetalRenderer
+        get() =
+            checkNotNull(macosRenderer as? MacosMetalRenderer) {
+                "The macOS native renderer is not Metal"
+            }
+
+    /** `id<MTLDevice>` of the native Metal renderer, or null when the layer does not use Metal. */
+    @InternalSkikoApi
+    val metalDevicePtr: NativePointer?
+        get() = (macosRenderer as? MacosMetalRenderer)?.devicePtr
+
+    /**
+     * `id<MTLCommandQueue>` on which Skia submits, or null when the layer does not use Metal.
+     * External work committed to this queue inside [withMetalContext] runs before Skia samples it.
+     */
+    @InternalSkikoApi
+    val metalCommandQueuePtr: NativePointer?
+        get() = (macosRenderer as? MacosMetalRenderer)?.queuePtr
+
+    /** Commits pending Skia work to [metalCommandQueuePtr] and then runs [block]. */
+    @InternalSkikoApi
+    fun <T> withMetalContext(block: () -> T): T = metalRenderer.withExternalMetal(block)
+
+    /**
+     * Draws an `id<MTLTexture>` created on [metalDevicePtr] into [canvas] without readback.
+     * [pixelFormat] is the texture's `MTLPixelFormat` (RGBA8Unorm or BGRA8Unorm).
+     */
+    @InternalSkikoApi
+    fun drawMetalTexture(
+        texturePtr: NativePointer,
+        width: Int,
+        height: Int,
+        pixelFormat: ULong,
+        canvas: Canvas,
+    ) {
+        metalRenderer.drawTexture(texturePtr, width, height, pixelFormat, canvas)
     }
 
     @Deprecated(

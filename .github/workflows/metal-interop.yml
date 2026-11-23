@@ -1,0 +1,54 @@
+name: Metal interop
+
+# Runs the Metal texture interop tests on Apple silicon runners. The macOS runners expose a
+# paravirtualized Metal device, so the tests render and sample real Metal textures.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'claude/**'
+    paths:
+      - 'skiko/src/commonMain/kotlin/org/jetbrains/skia/BackendTexture.kt'
+      - 'skiko/src/nativeJsMain/cpp/BackendTexture.cc'
+      - 'skiko/src/jvmMain/cpp/common/BackendTexture.cc'
+      - 'skiko/src/darwinTest/**'
+      - 'skiko/src/macosMain/**'
+      - '.github/workflows/metal-interop.yml'
+
+jobs:
+  macos:
+    name: 'macOS arm64 Metal interop'
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      - uses: ./.github/actions/setup-prerequisites
+
+      - name: Show Metal device
+        shell: bash
+        run: system_profiler SPDisplaysDataType | sed -n '1,30p'
+
+      - name: Run Metal BackendTexture and BackendRenderTarget tests
+        shell: bash
+        run: |
+          ./gradlew -p skiko --no-daemon --stacktrace --console=plain \
+            -Pskiko.native.enabled=true \
+            -Dskiko.test.onci=true \
+            -Dskiko.test.performance.enabled=false \
+            macosArm64Test \
+            --tests 'org.jetbrains.skia.BackendTextureDarwinTest' \
+            --tests 'org.jetbrains.skia.BackendRenderTargetDarwinTest'
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metal-interop-test-reports
+          path: ./skiko/build/reports/tests
+          retention-days: 7

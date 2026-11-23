@@ -8,6 +8,10 @@
 #include "include/gpu/ganesh/SkImageGanesh.h"
 #include "ganesh/GrDirectContext.h"
 #include "ganesh/gl/GrGLDirectContext.h"
+#ifdef SK_METAL
+#include "ganesh/mtl/GrMtlBackendSurface.h"
+#include "ganesh/mtl/GrMtlTypes.h"
+#endif
 
 
 static void deleteBackendTexture(GrBackendTexture* rt) {
@@ -42,4 +46,25 @@ extern "C" JNIEXPORT void JNICALL Java_org_jetbrains_skia_BackendTextureKt__1nGL
   (JNIEnv* env, jclass jclass, jlong backendTexturePtr) {
     GrBackendTexture* backendTexture = reinterpret_cast<GrBackendTexture*>(static_cast<uintptr_t>(backendTexturePtr));
     GrBackendTextures::GLTextureParametersModified(backendTexture);
+}
+
+extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_BackendTextureKt__1nMakeMetal
+  (JNIEnv* env, jclass jclass, jint width, jint height, jboolean isMipmapped, jlong texturePtr) {
+#ifdef SK_METAL
+    GrMtlTextureInfo textureInfo;
+    textureInfo.fTexture.retain(reinterpret_cast<GrMTLHandle>(static_cast<uintptr_t>(texturePtr)));
+
+    GrBackendTexture obj = GrBackendTextures::MakeMtl(
+        width,
+        height,
+        isMipmapped ? skgpu::Mipmapped::kYes : skgpu::Mipmapped::kNo,
+        textureInfo
+    );
+    if (!obj.isValid()) {
+        return 0;
+    }
+    return reinterpret_cast<jlong>(new GrBackendTexture(obj));
+#else
+    return 0;
+#endif
 }

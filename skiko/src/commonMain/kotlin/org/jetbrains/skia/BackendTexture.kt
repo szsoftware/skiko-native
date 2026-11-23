@@ -2,6 +2,8 @@ package org.jetbrains.skia
 
 import org.jetbrains.skia.impl.*
 import org.jetbrains.skia.impl.Library.Companion.staticLoad
+import org.jetbrains.skia.impl.Native.Companion.NullPointer
+import org.jetbrains.skiko.RenderException
 
 class BackendTexture internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerHolder.PTR) {
     companion object {
@@ -34,6 +36,32 @@ class BackendTexture internal constructor(ptr: NativePointer) : Managed(ptr, _Fi
                 textureTarget,
                 textureFormat
             )
+            return BackendTexture(ptr)
+        }
+
+        /**
+         * Creates BackendTexture from a Metal texture.
+         *
+         * The texture is retained by the returned object and by every Skia image made from it, so
+         * the caller may release its own reference while Skia still uses the texture.
+         *
+         * @param width - width of the [BackendTexture] to be created
+         * @param height - height of the [BackendTexture] to be created
+         * @param texturePtr - `id<MTLTexture>` to wrap; must not be zero
+         * @param isMipmapped - whether [texturePtr] has a full mipmap chain
+         *
+         * @throws RenderException if Skia was built without Metal or rejects the texture
+         */
+        fun makeMetal(
+            width: Int,
+            height: Int,
+            texturePtr: NativePointer,
+            isMipmapped: Boolean = false,
+        ): BackendTexture {
+            require(texturePtr != NullPointer) { "texturePtr must not be null" }
+            Stats.onNativeCall()
+            val ptr = _nMakeMetal(width, height, isMipmapped, texturePtr)
+            if (ptr == NullPointer) throw RenderException("Can't create Metal BackendTexture")
             return BackendTexture(ptr)
         }
 
@@ -76,6 +104,18 @@ private external fun _nMakeGL(
     textureId: Int,
     target: Int,
     format: Int
+): NativePointer
+
+@ExternalSymbolName("org_jetbrains_skia_BackendTexture__1nMakeMetal")
+// Needs ForceNativeThreadState: retains a Metal texture through CoreFoundation and reads its format through
+// Objective-C.
+// Native call path: GrBackendTextures::MakeMtl
+@ForceNativeThreadState
+private external fun _nMakeMetal(
+    width: Int,
+    height: Int,
+    isMipmapped: Boolean,
+    texturePtr: NativePointer
 ): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_BackendTexture__1nGLTextureParametersModified")

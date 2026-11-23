@@ -5,6 +5,10 @@
 #include "include/gpu/ganesh/SkImageGanesh.h"
 #include "include/gpu/ganesh/gl/GrGLTypes.h"
 #include "gpu/ganesh/GrBackendSurface.h"
+#ifdef SK_METAL
+#include "ganesh/mtl/GrMtlBackendSurface.h"
+#include "ganesh/mtl/GrMtlTypes.h"
+#endif
 
 static void deleteBackendTexture(GrBackendTexture* rt) {
     delete rt;
@@ -35,4 +39,24 @@ SKIKO_EXPORT void org_jetbrains_skia_BackendTexture__1nGLTextureParametersModifi
   (KNativePointer backendTexturePtr) {
     GrBackendTexture* backendTexture = reinterpret_cast<GrBackendTexture*>(backendTexturePtr);
     GrBackendTextures::GLTextureParametersModified(backendTexture);
+}
+SKIKO_EXPORT KNativePointer org_jetbrains_skia_BackendTexture__1nMakeMetal
+  (KInt width, KInt height, KBoolean isMipmapped, KNativePointer texturePtr) {
+#ifdef SK_METAL
+    GrMtlTextureInfo textureInfo;
+    textureInfo.fTexture.retain(reinterpret_cast<GrMTLHandle>(texturePtr));
+
+    GrBackendTexture obj = GrBackendTextures::MakeMtl(
+        width,
+        height,
+        isMipmapped ? skgpu::Mipmapped::kYes : skgpu::Mipmapped::kNo,
+        textureInfo
+    );
+    if (!obj.isValid()) {
+        return nullptr;
+    }
+    return new GrBackendTexture(obj);
+#else
+    return nullptr;
+#endif
 }
